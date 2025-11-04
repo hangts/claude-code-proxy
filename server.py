@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import re
 from datetime import datetime
 import sys
+import copy
 
 # Load environment variables from .env file
 load_dotenv()
@@ -192,67 +193,66 @@ class MessagesRequest(BaseModel):
     
     @field_validator('model')
     def validate_model_field(cls, v, info): # Renamed to avoid conflict
-        original_model = v
-        new_model = v # Default to original value
+        new_model = f"openai/{v}" # Default to original value
 
-        logger.debug(f"📋 MODEL VALIDATION: Original='{original_model}', Preferred='{PREFERRED_PROVIDER}', BIG='{BIG_MODEL}', SMALL='{SMALL_MODEL}'")
+        # logger.debug(f"📋 MODEL VALIDATION: Original='{original_model}', Preferred='{PREFERRED_PROVIDER}', BIG='{BIG_MODEL}', SMALL='{SMALL_MODEL}'")
 
-        # Remove provider prefixes for easier matching
-        clean_v = v
-        if clean_v.startswith('anthropic/'):
-            clean_v = clean_v[10:]
-        elif clean_v.startswith('openai/'):
-            clean_v = clean_v[7:]
-        elif clean_v.startswith('gemini/'):
-            clean_v = clean_v[7:]
+        # # Remove provider prefixes for easier matching
+        # clean_v = v
+        # if clean_v.startswith('anthropic/'):
+        #     clean_v = clean_v[10:]
+        # elif clean_v.startswith('openai/'):
+        #     clean_v = clean_v[7:]
+        # elif clean_v.startswith('gemini/'):
+        #     clean_v = clean_v[7:]
 
-        # --- Mapping Logic --- START ---
-        mapped = False
-        if PREFERRED_PROVIDER == "anthropic":
-            # Don't remap to big/small models, just add the prefix
-            new_model = f"anthropic/{clean_v}"
-            mapped = True
+        # # --- Mapping Logic --- START ---
+        # mapped = False
+        # if PREFERRED_PROVIDER == "anthropic":
+        #     # Don't remap to big/small models, just add the prefix
+        #     new_model = f"anthropic/{clean_v}"
+        #     mapped = True
 
-        # Map Haiku to SMALL_MODEL based on provider preference
-        elif 'haiku' in clean_v.lower():
-            if PREFERRED_PROVIDER == "google" and SMALL_MODEL in GEMINI_MODELS:
-                new_model = f"gemini/{SMALL_MODEL}"
-                mapped = True
-            else:
-                new_model = f"openai/{SMALL_MODEL}"
-                mapped = True
+        # # Map Haiku to SMALL_MODEL based on provider preference
+        # elif 'haiku' in clean_v.lower():
+        #     if PREFERRED_PROVIDER == "google" and SMALL_MODEL in GEMINI_MODELS:
+        #         new_model = f"gemini/{SMALL_MODEL}"
+        #         mapped = True
+        #     else:
+        #         new_model = f"openai/{SMALL_MODEL}"
+        #         mapped = True
 
-        # Map Sonnet to BIG_MODEL based on provider preference
-        elif 'sonnet' in clean_v.lower():
-            if PREFERRED_PROVIDER == "google" and BIG_MODEL in GEMINI_MODELS:
-                new_model = f"gemini/{BIG_MODEL}"
-                mapped = True
-            else:
-                new_model = f"openai/{BIG_MODEL}"
-                mapped = True
+        # # Map Sonnet to BIG_MODEL based on provider preference
+        # elif 'sonnet' in clean_v.lower():
+        #     if PREFERRED_PROVIDER == "google" and BIG_MODEL in GEMINI_MODELS:
+        #         new_model = f"gemini/{BIG_MODEL}"
+        #         mapped = True
+        #     else:
+        #         new_model = f"openai/{BIG_MODEL}"
+        #         mapped = True
 
-        # Add prefixes to non-mapped models if they match known lists
-        elif not mapped:
-            if clean_v in GEMINI_MODELS and not v.startswith('gemini/'):
-                new_model = f"gemini/{clean_v}"
-                mapped = True # Technically mapped to add prefix
-            elif clean_v in OPENAI_MODELS and not v.startswith('openai/'):
-                new_model = f"openai/{clean_v}"
-                mapped = True # Technically mapped to add prefix
-        # --- Mapping Logic --- END ---
+        # # Add prefixes to non-mapped models if they match known lists
+        # elif not mapped:
+        #     if clean_v in GEMINI_MODELS and not v.startswith('gemini/'):
+        #         new_model = f"gemini/{clean_v}"
+        #         mapped = True # Technically mapped to add prefix
+        #     elif clean_v in OPENAI_MODELS and not v.startswith('openai/'):
+        #         new_model = f"openai/{clean_v}"
+        #         mapped = True # Technically mapped to add prefix
+        # # --- Mapping Logic --- END ---
 
-        if mapped:
-            logger.debug(f"📌 MODEL MAPPING: '{original_model}' ➡️ '{new_model}'")
-        else:
-             # If no mapping occurred and no prefix exists, log warning or decide default
-             if not v.startswith(('openai/', 'gemini/', 'anthropic/')):
-                 logger.warning(f"⚠️ No prefix or mapping rule for model: '{original_model}'. Using as is.")
-             new_model = v # Ensure we return the original if no rule applied
+        # if mapped:
+        #     logger.debug(f"📌 MODEL MAPPING: '{original_model}' ➡️ '{new_model}'")
+        # else:
+        #      # If no mapping occurred and no prefix exists, log warning or decide default
+        #      if not v.startswith(('openai/', 'gemini/', 'anthropic/')):
+        #          logger.warning(f"⚠️ No prefix or mapping rule for model: '{original_model}'. Using as is.")
+        #      new_model = v # Ensure we return the original if no rule applied
 
-        # Store the original model in the values dictionary
-        values = info.data
-        if isinstance(values, dict):
-            values['original_model'] = original_model
+        # # Store the original model in the values dictionary
+        # values = info.data
+        # if isinstance(values, dict):
+        #     values['original_model'] = original_model
 
         return new_model
 
@@ -1093,11 +1093,11 @@ async def create_message(
     try:
         # print the body here
         body = await raw_request.body()
-    
         # Parse the raw body as JSON since it's bytes
         body_json = json.loads(body.decode('utf-8'))
-        original_model = body_json.get("model", "unknown")
-        
+        original_model = body_json.get('model', 'unknown')
+        model_openai = f"openai/{original_model}"
+
         # Get the display name for logging, just the model name without provider prefix
         display_model = original_model
         if "/" in display_model:
@@ -1286,8 +1286,13 @@ async def create_message(
                 num_tools,
                 200  # Assuming success at this point
             )
+            litellm_request_copy = copy.deepcopy(litellm_request)
+            litellm_request_copy["model"] = model_openai
+            litellm_request_copy["base_url"] = OPENAI_BASE_URL
+            litellm_request_copy["api_key"] = OPENAI_API_KEY
+            logger.warning(f"✅ RESPONSE Request: Model={litellm_request_copy.get('model')}, model_new={litellm_request.get('model')}")
             # Ensure we use the async version for streaming
-            response_generator = await litellm.acompletion(**litellm_request)
+            response_generator = await litellm.acompletion(**litellm_request_copy)
             
             return StreamingResponse(
                 handle_streaming(response_generator, request),
@@ -1307,8 +1312,13 @@ async def create_message(
                 200  # Assuming success at this point
             )
             start_time = time.time()
-            litellm_response = litellm.completion(**litellm_request)
-            logger.debug(f"✅ RESPONSE RECEIVED: Model={litellm_request.get('model')}, Time={time.time() - start_time:.2f}s")
+            litellm_request_copy = copy.deepcopy(litellm_request)
+            litellm_request_copy["model"] = model_openai
+            litellm_request_copy["base_url"] = OPENAI_BASE_URL
+            litellm_request_copy["api_key"] = OPENAI_API_KEY
+            logger.warning(f"✅ RESPONSE Request: Model={litellm_request_copy.get('model')}, model_new={litellm_request.get('model')} ")
+            litellm_response = litellm.completion(**litellm_request_copy)
+            logger.debug(f"✅ RESPONSE RECEIVED: Model={model_openai}, Time={time.time() - start_time:.2f}s")
             
             # Convert LiteLLM response to Anthropic format
             anthropic_response = convert_litellm_to_anthropic(litellm_response, request)
