@@ -2,19 +2,15 @@ from fastapi import FastAPI, Request, HTTPException
 import uvicorn
 import logging
 import json
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 from typing import List, Dict, Any, Optional, Union, Literal
-import httpx
 import os
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 import litellm
 import uuid
 import time
 from dotenv import load_dotenv
-import re
-from datetime import datetime
 import sys
-import copy
 
 # Load environment variables from .env file
 load_dotenv()
@@ -79,15 +75,26 @@ for handler in logger.handlers:
 app = FastAPI()
 
 # Get API keys from environment
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+OPENAI_API_KEY = ''
 
 # Get OpenAI base URL from environment (if set)
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL") or "http://oneapi.blockbeat.hk/v1"
 
-# Get preferred provider (default to openai)
-PREFERRED_PROVIDER = os.environ.get("PREFERRED_PROVIDER", "openai").lower()
+# Get saving model from environment (if set)
+SAVING_MODEL = os.environ.get("SAVING_MODEL") or "deepseek/deepseek-v3.2-exp"
+
+# Get height model from environment (if set)
+HEIGHT_MODEL = os.environ.get("HEIGHT_MODEL") or "anthropic/claude-sonnet-4.5"
+
+ONEAPI_PREFIX = "oneapi/" 
+
+OPENAI_PREFIX = "openai/"
+
+HAIKU_MODEL_NAME = "haiku"
+
+SONNET_MODEL_NAME = "sonnet"
+
+
 
 # Get model mapping configuration from environment
 # Default to latest OpenAI models if not set
@@ -148,6 +155,7 @@ class ContentBlockImage(BaseModel):
     type: Literal["image"]
     source: Dict[str, Any]
 
+
 class ContentBlockToolUse(BaseModel):
     type: Literal["tool_use"]
     id: str
@@ -193,66 +201,16 @@ class MessagesRequest(BaseModel):
     
     @field_validator('model')
     def validate_model_field(cls, v, info): # Renamed to avoid conflict
-        new_model = f"openai/{v}" # Default to original value
+        
+        if ONEAPI_PREFIX in v:
+            new_model = v.replace(ONEAPI_PREFIX, OPENAI_PREFIX)
+        elif SONNET_MODEL_NAME in v:
+            new_model = f"{OPENAI_PREFIX}{HEIGHT_MODEL}"
+            logger.warning(f"❗❗❗ convert model: {v} newModel={new_model}")
+        else:
+            new_model = f"{OPENAI_PREFIX}{SAVING_MODEL}"
+            logger.warning(f"❗❗❗ convert model: {v} newModel={new_model}")
 
-        # logger.debug(f"📋 MODEL VALIDATION: Original='{original_model}', Preferred='{PREFERRED_PROVIDER}', BIG='{BIG_MODEL}', SMALL='{SMALL_MODEL}'")
-
-        # # Remove provider prefixes for easier matching
-        # clean_v = v
-        # if clean_v.startswith('anthropic/'):
-        #     clean_v = clean_v[10:]
-        # elif clean_v.startswith('openai/'):
-        #     clean_v = clean_v[7:]
-        # elif clean_v.startswith('gemini/'):
-        #     clean_v = clean_v[7:]
-
-        # # --- Mapping Logic --- START ---
-        # mapped = False
-        # if PREFERRED_PROVIDER == "anthropic":
-        #     # Don't remap to big/small models, just add the prefix
-        #     new_model = f"anthropic/{clean_v}"
-        #     mapped = True
-
-        # # Map Haiku to SMALL_MODEL based on provider preference
-        # elif 'haiku' in clean_v.lower():
-        #     if PREFERRED_PROVIDER == "google" and SMALL_MODEL in GEMINI_MODELS:
-        #         new_model = f"gemini/{SMALL_MODEL}"
-        #         mapped = True
-        #     else:
-        #         new_model = f"openai/{SMALL_MODEL}"
-        #         mapped = True
-
-        # # Map Sonnet to BIG_MODEL based on provider preference
-        # elif 'sonnet' in clean_v.lower():
-        #     if PREFERRED_PROVIDER == "google" and BIG_MODEL in GEMINI_MODELS:
-        #         new_model = f"gemini/{BIG_MODEL}"
-        #         mapped = True
-        #     else:
-        #         new_model = f"openai/{BIG_MODEL}"
-        #         mapped = True
-
-        # # Add prefixes to non-mapped models if they match known lists
-        # elif not mapped:
-        #     if clean_v in GEMINI_MODELS and not v.startswith('gemini/'):
-        #         new_model = f"gemini/{clean_v}"
-        #         mapped = True # Technically mapped to add prefix
-        #     elif clean_v in OPENAI_MODELS and not v.startswith('openai/'):
-        #         new_model = f"openai/{clean_v}"
-        #         mapped = True # Technically mapped to add prefix
-        # # --- Mapping Logic --- END ---
-
-        # if mapped:
-        #     logger.debug(f"📌 MODEL MAPPING: '{original_model}' ➡️ '{new_model}'")
-        # else:
-        #      # If no mapping occurred and no prefix exists, log warning or decide default
-        #      if not v.startswith(('openai/', 'gemini/', 'anthropic/')):
-        #          logger.warning(f"⚠️ No prefix or mapping rule for model: '{original_model}'. Using as is.")
-        #      new_model = v # Ensure we return the original if no rule applied
-
-        # # Store the original model in the values dictionary
-        # values = info.data
-        # if isinstance(values, dict):
-        #     values['original_model'] = original_model
 
         return new_model
 
@@ -266,66 +224,8 @@ class TokenCountRequest(BaseModel):
     original_model: Optional[str] = None  # Will store the original model name
     
     @field_validator('model')
-    def validate_model_token_count(cls, v, info): # Renamed to avoid conflict
-        # Use the same logic as MessagesRequest validator
-        # NOTE: Pydantic validators might not share state easily if not class methods
-        # Re-implementing the logic here for clarity, could be refactored
-        original_model = v
-        new_model = v # Default to original value
-
-        logger.debug(f"📋 TOKEN COUNT VALIDATION: Original='{original_model}', Preferred='{PREFERRED_PROVIDER}', BIG='{BIG_MODEL}', SMALL='{SMALL_MODEL}'")
-
-        # Remove provider prefixes for easier matching
-        clean_v = v
-        if clean_v.startswith('anthropic/'):
-            clean_v = clean_v[10:]
-        elif clean_v.startswith('openai/'):
-            clean_v = clean_v[7:]
-        elif clean_v.startswith('gemini/'):
-            clean_v = clean_v[7:]
-
-        # --- Mapping Logic --- START ---
-        mapped = False
-        # Map Haiku to SMALL_MODEL based on provider preference
-        if 'haiku' in clean_v.lower():
-            if PREFERRED_PROVIDER == "google" and SMALL_MODEL in GEMINI_MODELS:
-                new_model = f"gemini/{SMALL_MODEL}"
-                mapped = True
-            else:
-                new_model = f"openai/{SMALL_MODEL}"
-                mapped = True
-
-        # Map Sonnet to BIG_MODEL based on provider preference
-        elif 'sonnet' in clean_v.lower():
-            if PREFERRED_PROVIDER == "google" and BIG_MODEL in GEMINI_MODELS:
-                new_model = f"gemini/{BIG_MODEL}"
-                mapped = True
-            else:
-                new_model = f"openai/{BIG_MODEL}"
-                mapped = True
-
-        # Add prefixes to non-mapped models if they match known lists
-        elif not mapped:
-            if clean_v in GEMINI_MODELS and not v.startswith('gemini/'):
-                new_model = f"gemini/{clean_v}"
-                mapped = True # Technically mapped to add prefix
-            elif clean_v in OPENAI_MODELS and not v.startswith('openai/'):
-                new_model = f"openai/{clean_v}"
-                mapped = True # Technically mapped to add prefix
-        # --- Mapping Logic --- END ---
-
-        if mapped:
-            logger.debug(f"📌 TOKEN COUNT MAPPING: '{original_model}' ➡️ '{new_model}'")
-        else:
-             if not v.startswith(('openai/', 'gemini/', 'anthropic/')):
-                 logger.warning(f"⚠️ No prefix or mapping rule for token count model: '{original_model}'. Using as is.")
-             new_model = v # Ensure we return the original if no rule applied
-
-        # Store the original model in the values dictionary
-        values = info.data
-        if isinstance(values, dict):
-            values['original_model'] = original_model
-
+    def validate_model_token_count(cls, v): # Renamed to avoid conflict
+        new_model = f"{OPENAI_PREFIX}{v}" # Default to original value
         return new_model
 
 class TokenCountResponse(BaseModel):
@@ -541,7 +441,7 @@ def convert_anthropic_to_litellm(anthropic_request: MessagesRequest) -> Dict[str
     
     # Cap max_tokens for OpenAI models to their limit of 16384
     max_tokens = anthropic_request.max_tokens
-    if anthropic_request.model.startswith("openai/") or anthropic_request.model.startswith("gemini/"):
+    if 'claude-' not in anthropic_request.model:
         max_tokens = min(max_tokens, 16384)
         logger.debug(f"Capping max_tokens to 16384 for OpenAI/Gemini model (original value: {anthropic_request.max_tokens})")
     
@@ -633,17 +533,9 @@ def convert_litellm_to_anthropic(litellm_response: Union[Dict[str, Any], Any],
     """Convert LiteLLM (OpenAI format) response to Anthropic API response format."""
     
     # Enhanced response extraction with better error handling
-    try:
-        # Get the clean model name to check capabilities
-        clean_model = original_request.model
-        if clean_model.startswith("anthropic/"):
-            clean_model = clean_model[len("anthropic/"):]
-        elif clean_model.startswith("openai/"):
-            clean_model = clean_model[len("openai/"):]
-        
-        # Check if this is a Claude model (which supports content blocks)
-        is_claude_model = clean_model.startswith("claude-")
-        
+    try: 
+        # # Check if this is a Claude model (which supports content blocks)
+        is_claude_model = original_request.model.count("claude-") > 0
         # Handle ModelResponse object from LiteLLM
         if hasattr(litellm_response, 'choices') and hasattr(litellm_response, 'usage'):
             # Extract data from ModelResponse object directly
@@ -728,7 +620,7 @@ def convert_litellm_to_anthropic(litellm_response: Union[Dict[str, Any], Any],
                 })
         elif tool_calls and not is_claude_model:
             # For non-Claude models, convert tool calls to text format
-            logger.debug(f"Converting tool calls to text for non-Claude model: {clean_model}")
+            # logger.debug(f"Converting tool calls to text for non-Claude model: {clean_model}")
             
             # We'll append tool info to the text content
             tool_text = "\n\nTool usage:\n"
@@ -869,8 +761,6 @@ async def handle_streaming(response_generator, original_request: MessagesRequest
         # Process each chunk
         async for chunk in response_generator:
             try:
-
-                
                 # Check if this is the end of the response with usage data
                 if hasattr(chunk, 'usage') and chunk.usage is not None:
                     if hasattr(chunk.usage, 'prompt_tokens'):
@@ -1091,12 +981,15 @@ async def create_message(
     raw_request: Request
 ):
     try:
+        authKey = raw_request.headers.get("Authorization")
+        if authKey and authKey.startswith("Bearer "):
+            OPENAI_API_KEY = authKey.replace("Bearer ", "")
+        
         # print the body here
         body = await raw_request.body()
         # Parse the raw body as JSON since it's bytes
         body_json = json.loads(body.decode('utf-8'))
         original_model = body_json.get('model', 'unknown')
-        model_openai = f"openai/{original_model}"
 
         # Get the display name for logging, just the model name without provider prefix
         display_model = original_model
@@ -1104,32 +997,20 @@ async def create_message(
             display_model = display_model.split("/")[-1]
         
         # Clean model name for capability check
-        clean_model = request.model
-        if clean_model.startswith("anthropic/"):
-            clean_model = clean_model[len("anthropic/"):]
-        elif clean_model.startswith("openai/"):
-            clean_model = clean_model[len("openai/"):]
+        # clean_model = request.model
+        # if clean_model.startswith("anthropic/"):
+        #     clean_model = clean_model[len("anthropic/"):]
+        # elif clean_model.startswith("openai/"):
+        #     clean_model = clean_model[len("openai/"):]
         
         logger.debug(f"📊 PROCESSING REQUEST: Model={request.model}, Stream={request.stream}")
         
         # Convert Anthropic request to LiteLLM format
         litellm_request = convert_anthropic_to_litellm(request)
-        
+
         # Determine which API key to use based on the model
-        if request.model.startswith("openai/"):
-            litellm_request["api_key"] = OPENAI_API_KEY
-            # Use custom OpenAI base URL if configured
-            if OPENAI_BASE_URL:
-                litellm_request["api_base"] = OPENAI_BASE_URL
-                logger.debug(f"Using OpenAI API key and custom base URL {OPENAI_BASE_URL} for model: {request.model}")
-            else:
-                logger.debug(f"Using OpenAI API key for model: {request.model}")
-        elif request.model.startswith("gemini/"):
-            litellm_request["api_key"] = GEMINI_API_KEY
-            logger.debug(f"Using Gemini API key for model: {request.model}")
-        else:
-            litellm_request["api_key"] = ANTHROPIC_API_KEY
-            logger.debug(f"Using Anthropic API key for model: {request.model}")
+        litellm_request["api_key"] = OPENAI_API_KEY
+        litellm_request["api_base"] = OPENAI_BASE_URL
         
         # For OpenAI models - modify request format to work with limitations
         if "openai" in litellm_request["model"] and "messages" in litellm_request:
@@ -1286,13 +1167,11 @@ async def create_message(
                 num_tools,
                 200  # Assuming success at this point
             )
-            litellm_request_copy = copy.deepcopy(litellm_request)
-            litellm_request_copy["model"] = model_openai
-            litellm_request_copy["base_url"] = OPENAI_BASE_URL
-            litellm_request_copy["api_key"] = OPENAI_API_KEY
-            logger.warning(f"✅ RESPONSE Request: Model={litellm_request_copy.get('model')}, model_new={litellm_request.get('model')}")
+            start_time = time.time()
+            logger.warning(f"💰 AI Streaming Request : Model={litellm_request.get('model')}, baseurl={litellm_request.get('api_base')}") 
+            response_generator = await litellm.acompletion(**litellm_request)
+            logger.warning(f"✅ Streaming RESPONSE : Model={litellm_request.get('model')}, Time={time.time() - start_time:.2f}s")
             # Ensure we use the async version for streaming
-            response_generator = await litellm.acompletion(**litellm_request_copy)
             
             return StreamingResponse(
                 handle_streaming(response_generator, request),
@@ -1312,13 +1191,9 @@ async def create_message(
                 200  # Assuming success at this point
             )
             start_time = time.time()
-            litellm_request_copy = copy.deepcopy(litellm_request)
-            litellm_request_copy["model"] = model_openai
-            litellm_request_copy["base_url"] = OPENAI_BASE_URL
-            litellm_request_copy["api_key"] = OPENAI_API_KEY
-            logger.warning(f"✅ RESPONSE Request: Model={litellm_request_copy.get('model')}, model_new={litellm_request.get('model')} ")
-            litellm_response = litellm.completion(**litellm_request_copy)
-            logger.debug(f"✅ RESPONSE RECEIVED: Model={model_openai}, Time={time.time() - start_time:.2f}s")
+            logger.warning(f"💰 AI Request : Model={litellm_request.get('model')}, baseurl={litellm_request.get('api_base')}") 
+            litellm_response = litellm.completion(**litellm_request)
+            logger.warning(f"✅ RESPONSE : Model={litellm_request.get('model')}, Time={time.time() - start_time:.2f}s")
             
             # Convert LiteLLM response to Anthropic format
             anthropic_response = convert_litellm_to_anthropic(litellm_response, request)
@@ -1395,11 +1270,11 @@ async def count_tokens(
             display_model = display_model.split("/")[-1]
         
         # Clean model name for capability check
-        clean_model = request.model
-        if clean_model.startswith("anthropic/"):
-            clean_model = clean_model[len("anthropic/"):]
-        elif clean_model.startswith("openai/"):
-            clean_model = clean_model[len("openai/"):]
+        # clean_model = request.model
+        # if clean_model.startswith("anthropic/"):
+        #     clean_model = clean_model[len("anthropic/"):]
+        # elif clean_model.startswith("openai/"):
+        #     clean_model = clean_model[len("openai/"):]
         
         # Convert the messages to a format LiteLLM can understand
         converted_request = convert_anthropic_to_litellm(
@@ -1413,7 +1288,6 @@ async def count_tokens(
                 thinking=request.thinking
             )
         )
-        
         # Use LiteLLM's token_counter function
         try:
             # Import token_counter function
@@ -1437,14 +1311,9 @@ async def count_tokens(
                 "model": converted_request["model"],
                 "messages": converted_request["messages"],
             }
-            
-            # Add custom base URL for OpenAI models if configured
-            if request.model.startswith("openai/") and OPENAI_BASE_URL:
-                token_counter_args["api_base"] = OPENAI_BASE_URL
-            
+
             # Count tokens
             token_count = token_counter(**token_counter_args)
-            
             # Return Anthropic-style response
             return TokenCountResponse(input_tokens=token_count)
             
