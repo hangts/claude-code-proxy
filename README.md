@@ -55,7 +55,7 @@ A proxy server that lets you use Anthropic clients with Gemini, OpenAI, or Anthr
    npm install -g @anthropic-ai/claude-code
    ```
 
-2.  claude code settings:
+2.  **Claude Code Settings**:
    ```json
    {
       "env": {
@@ -69,7 +69,7 @@ A proxy server that lets you use Anthropic clients with Gemini, OpenAI, or Anthr
    }
    ```
 
-3. **That's it!** Your Claude Code client will now use the configured backend models (defaulting to Gemini) through the proxy. 🎯
+3. **That's it!** Your Claude Code client will now use the configured backend models through the proxy. 🎯
 
 
 ## How It Works 🧩
