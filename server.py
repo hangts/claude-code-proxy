@@ -78,7 +78,7 @@ app = FastAPI()
 OPENAI_API_KEY = ''
 
 # Get OpenAI base URL from environment (if set)
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL") or "http://oneapi.blockbeat.hk/v1"
+ONEAPI_BASE_URL = os.environ.get("ONEAPI_BASE_URL") or "http://oneapi.blockbeat.hk/v1"
 
 # Get saving model from environment (if set)
 SAVING_MODEL = os.environ.get("SAVING_MODEL") or "deepseek/deepseek-v3.2-exp"
@@ -1010,7 +1010,7 @@ async def create_message(
 
         # Determine which API key to use based on the model
         litellm_request["api_key"] = OPENAI_API_KEY
-        litellm_request["api_base"] = OPENAI_BASE_URL
+        litellm_request["api_base"] = ONEAPI_BASE_URL
         
         # For OpenAI models - modify request format to work with limitations
         if f"{OPENAI_PREFIX}{OPENAI_PREFIX}" in litellm_request["model"] and "messages" in litellm_request:
