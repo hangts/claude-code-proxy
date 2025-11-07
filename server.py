@@ -771,7 +771,7 @@ async def handle_streaming(response_generator, original_request: MessagesRequest
                 # Handle text content
                 if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
                     choice = chunk.choices[0]
-                    
+                    # logger.warning(f"🤔 🤔 🤔  Received chunk choice: {choice}")
                     # Get the delta from the choice
                     if hasattr(choice, 'delta'):
                         delta = choice.delta
@@ -808,7 +808,10 @@ async def handle_streaming(response_generator, original_request: MessagesRequest
                         delta_tool_calls = delta.tool_calls
                     elif isinstance(delta, dict) and 'tool_calls' in delta:
                         delta_tool_calls = delta['tool_calls']
-                    
+
+                    # if delta_tool_calls is not None:
+                    #     logger.warning(f"❌❌❌❌❌:tool_calls= {delta_tool_calls}")
+                
                     # Process tool calls if any
                     if delta_tool_calls:
                         # First tool call we've seen - need to handle text properly
@@ -862,6 +865,7 @@ async def handle_streaming(response_generator, original_request: MessagesRequest
                                     name = getattr(function, 'name', '') if function else ''
                                     tool_id = getattr(tool_call, 'id', f"toolu_{uuid.uuid4().hex[:24]}")
                                 
+                                # logger.warning(f"❌❌❌❌❌ tool start :tool_id= {tool_id}, name= {name} chunk={chunk}")
                                 # Start a new tool_use block
                                 yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': anthropic_tool_index, 'content_block': {'type': 'tool_use', 'id': tool_id, 'name': name, 'input': {}}})}\n\n"
                                 current_tool_call = tool_call
@@ -892,8 +896,11 @@ async def handle_streaming(response_generator, original_request: MessagesRequest
                                     args_json = arguments
                                 
                                 # Add to accumulated tool content
-                                tool_content += args_json if isinstance(args_json, str) else ""
-                                
+                                # tool_content += args_json if isinstance(args_json, str) else ""
+
+                                # tool_content = args_json if isinstance(args_json, str) else ""
+
+                                # logger.warning(f"✅✅✅✅✅tool delta :tool_id= {tool_id}, tool_content= {tool_content}, args_json={args_json}")
                                 # Send the update
                                 yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': anthropic_tool_index, 'delta': {'type': 'input_json_delta', 'partial_json': args_json}})}\n\n"
                     
@@ -933,6 +940,11 @@ async def handle_streaming(response_generator, original_request: MessagesRequest
                         
                         # Send final [DONE] marker to match Anthropic's behavior
                         yield "data: [DONE]\n\n"
+                        
+                        # if tool_index is None and len(original_request.tools) > 0:
+                        #     logger.warning(f"⚠️⚠️⚠️⚠️⚠️ DONE, tool index={tool_index} messageTools={len(original_request.tools)} messages={original_request.messages}")
+                        # else:
+                        #     logger.warning(f"⚠️⚠️⚠️⚠️⚠️ DONE, tool index={tool_index} messageTools={len(original_request.tools)}")
                         return
             except Exception as e:
                 # Log error but continue processing other chunks
