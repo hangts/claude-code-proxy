@@ -55,11 +55,7 @@ A proxy server that lets you use Anthropic clients with Gemini, OpenAI, or Anthr
    npm install -g @anthropic-ai/claude-code
    ```
 
-2. **Connect to your proxy**:
-   ```bash
-   ANTHROPIC_BASE_URL=http://localhost:8082 claude
-   ```
-3. 配置 claude code settings:
+2.  claude code settings:
    ```json
    {
       "env": {
