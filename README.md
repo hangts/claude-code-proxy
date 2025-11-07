@@ -63,8 +63,8 @@ A proxy server that lets you use Anthropic clients with Gemini, OpenAI, or Anthr
    ```json
    {
       "env": {
-         "ANTHROPIC_BASE_URL": "your proxy url",
-         "ANTHROPIC_AUTH_TOKEN": "your oneapi auth token",
+         "ANTHROPIC_BASE_URL": "{your proxy url}",
+         "ANTHROPIC_AUTH_TOKEN": "{your oneapi auth token}",
          "ANTHROPIC_MODEL": "oneapi/{your model name}",
          "ANTHROPIC_SMALL_FAST_MODEL": "oneapi/{your model name}",
          "API_TIMEOUT_MS": "3000000",
