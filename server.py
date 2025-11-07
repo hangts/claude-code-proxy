@@ -1013,7 +1013,7 @@ async def create_message(
         litellm_request["api_base"] = OPENAI_BASE_URL
         
         # For OpenAI models - modify request format to work with limitations
-        if "openai" in litellm_request["model"] and "messages" in litellm_request:
+        if f"{OPENAI_PREFIX}{OPENAI_PREFIX}" in litellm_request["model"] and "messages" in litellm_request:
             logger.debug(f"Processing OpenAI model request: {litellm_request['model']}")
             
             # For OpenAI models, we need to convert content blocks to simple strings
